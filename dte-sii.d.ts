@@ -1,7 +1,7 @@
 ﻿/**
- * @devlas/dte-sii - Type Definitions
+ * @welcome-back/sii-service - Type Definitions
  *
- * TypeScript declarations for @devlas/dte-sii
+ * TypeScript declarations for @welcome-back/sii-service
  *
  * @version 2.5.3
  */
@@ -59,6 +59,8 @@ export interface Receptor {
   DirRecep: string;
   CmnaRecep: string;
   CiudadRecep?: string;
+  /** Nombre de contacto del receptor (max 80, XSD). */
+  Contacto?: string;
   CorreoRecep?: string;
 }
 
@@ -524,6 +526,8 @@ export interface DteDatos {
     };
     Emisor: Emisor;
     Receptor: Receptor;
+    /** RUT que solicita el DTE (Venta a Publico). Opcional; no existe en boleta. Se valida y se formatea. */
+    RUTSolicita?: string;
     Totales: Totales;
   };
   Detalle?: DetalleItem[];
@@ -537,6 +541,8 @@ export interface DteSimplificado {
   fechaEmision?: string;
   emisor: EmisorConfig;
   receptor?: ReceptorConfig;
+  /** RUT de quien pide el documento (RUTSolicita). Solo documentos que no son boleta. */
+  rutSolicita?: string;
   items: ItemSimple[];
   referencias?: Referencia[];
   certificado?: Certificado;

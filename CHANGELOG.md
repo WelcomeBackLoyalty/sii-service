@@ -8,6 +8,22 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+### Cambiado
+
+- **El paquete se publica como `@welcome-back/sii-service`** en npm (fork de `dte-sii` 2.43.0). Cambia solo el nombre y el registro: la API es la misma.
+
+### Agregado
+
+- **El DTE puede declarar quién pidió el documento (`RUTSolicita`) y el contacto del receptor (`Contacto`, `CorreoRecep`).**
+  El XSD de la factura los admite opcionales y la librería no los emitía en el formato simplificado. `Encabezado.RUTSolicita`
+  (o `rutSolicita` en el formato simplificado) se valida (dígito verificador), se formatea y se emite justo después de
+  `Receptor`. No se emite en boleta, cuyo esquema no lo tiene. `Contacto` y `CorreoRecep` salen entre `GiroRecep` y
+  `DirRecep`; si superan los 80 caracteres del XSD se lanza el error en la librería, en vez de dejar que el SII rechace el
+  sobre completo. Sin los campos el XML no cambia.
+- **El impreso (HTML y PDF de `MuestrasImpresas`) muestra al solicitante.** `parseEnvioDTE` entrega `rutSolicita` y el recuadro del
+  receptor agrega una fila "Solicitante / RUT solicitante" (nombre desde `Receptor/Contacto`) solo cuando el XML trae esos datos;
+  sin ellos el recuadro queda igual que antes.
+
 ## [2.43.0] - 2026-10-30
 
 ### Agregado

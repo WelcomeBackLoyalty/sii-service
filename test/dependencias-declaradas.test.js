@@ -7,7 +7,7 @@
  *
  * 1. `EnviadorSII.js` hacia `require('form-data')` y `form-data` no estaba en
  *    `dependencies`. Llegaba de prestado por `soap` -> `axios` -> `form-data`.
- *    Funcionaba por accidente: sacar `soap` rompia `require('@devlas/dte-sii')`
+ *    Funcionaba por accidente: sacar `soap` rompia `require('@welcome-back/sii-service')`
  *    en todo consumidor, porque `index.js` carga `EnviadorSII.js`.
  *
  * 2. `soap` y `xml-c14n` estaban declaradas y ningun archivo las requeria. La
