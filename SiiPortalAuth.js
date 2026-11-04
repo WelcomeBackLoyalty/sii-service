@@ -1499,8 +1499,8 @@ class SiiPortalAuth {
   // Distinto de consemitidos: expone el estado real (Registro/No Incluir/Pendiente/Reclamado)
   // mediante `estadoContab`, en vez de listar todo sin distinguir si el SII lo consideró
   // parte del registro tributario oficial. getDetalleCompra/getDetalleVenta de este mismo
-  // servicio exigen reCAPTCHA v3 (tokenRecaptcha) — no se automatizan aquí. getResumen no lo
-  // exige y sí se puede llamar.
+  // servicio mandan un tokenRecaptcha que hoy el SII acepta aunque sea fijo (ver
+  // obtenerDetalleRegistro, que avisa con RCV_DETALLE_RECAPTCHA si deja de aceptarlo).
 
   /**
    * Resumen "oficial" del RCV (consdcvinternetui) para un período, filtrado por estado
@@ -1556,6 +1556,88 @@ class SiiPortalAuth {
       throw new Error(`SiiPortalAuth: respuesta no-JSON de getResumen (consdcvinternetui): ${res.body.slice(0, 300)}`);
     }
     return { resumen: parsed.data ?? [], cabecera: parsed.dataCabecera ?? null };
+  }
+
+  /**
+   * Detalle por documento del RCV oficial (`consdcvinternetui`), de un tipo de documento y un
+   * estado contable. A diferencia de `obtenerDetalleDtes` (consemitidos) entrega el evento del
+   * receptor con su leyenda y la sucursal (`CdgSIISucur`).
+   *
+   * Lo que se midió en el portal (2026-11-04, 7 facturas de recibidos en 10 períodos):
+   *  - `detEventoReceptor` "P" con leyenda "Forma de pago contado": el documento se pactó al
+   *    contado. Es la única marca de pago que existe. No hay fecha de pago ni vencimiento.
+   *  - Sin "P" viene el estado de acuse ("A": "No reclamado en plazo"). El crédito no tiene marca
+   *    propia: no es "pagado" ni "pendiente", solo "no es contado".
+   *
+   * ⚠️ El navegador manda un `tokenRecaptcha` fijo ("t-o-k-e-n-web") y hoy el SII lo acepta.
+   * No es un reCAPTCHA resuelto: el SII puede empezar a validarlo sin aviso. En ese caso lanza
+   * `RCV_DETALLE_RECAPTCHA` y el llamador debe seguir con `obtenerDetalleDtes`.
+   *
+   * @param {string} rutEmisor - RUT del contribuyente autenticado (sin DV)
+   * @param {string} dvEmisor
+   * @param {string} periodo - "AAAA-MM" (se convierte a "AAAAMM")
+   * @param {'COMPRA'|'VENTA'} operacion
+   * @param {number|string} codTipoDoc - Código SII del tipo de documento (33, 34, 46, ...)
+   * @param {'REGISTRO'|'PENDIENTE'|'NO_INCLUIR'|'RECLAMADO'} [estadoContab] - default 'REGISTRO'
+   * @param {Object} [cookieJar]
+   * @param {string} [ambiente]
+   * @returns {Promise<Array<Object>>} Filas crudas del SII más `formaPago` ('contado' | null) y
+   *   `evento` (código de `detEventoReceptor`).
+   */
+  async obtenerDetalleRegistro(rutEmisor, dvEmisor, periodo, operacion, codTipoDoc, estadoContab = 'REGISTRO', cookieJar = null, ambiente = 'produccion') {
+    const jar   = cookieJar || await this.autenticar();
+    const token = await this._obtenerTokenPortalCV(jar, ambiente);
+    const host  = this._hostConsemitidos(ambiente);
+    const metodo = operacion === 'VENTA' ? 'getDetalleVenta' : 'getDetalleCompra';
+    const body = JSON.stringify({
+      metaData: {
+        namespace:      `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${metodo}`,
+        conversationId: token,
+        transactionId:  crypto.randomUUID(),
+        page:           null,
+      },
+      data: {
+        rutEmisor, dvEmisor,
+        ptributario: periodo.replace('-', ''),
+        codTipoDoc: String(codTipoDoc),
+        operacion,
+        estadoContab,
+        accionRecaptcha: operacion === 'VENTA' ? 'RCV_DETV' : 'RCV_DETC',
+        tokenRecaptcha:  't-o-k-e-n-web',
+      },
+    });
+    const res = await this._request(
+      `https://${host}/consdcvinternetui/services/data/facadeService/${metodo}`,
+      {
+        method:  'POST',
+        body,
+        cookieJar: jar,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept':       'application/json, text/plain, */*',
+          'Origin':       `https://${host}`,
+          'Referer':      `https://${host}/consdcvinternetui/`,
+        },
+      }
+    );
+    let parsed;
+    try {
+      parsed = JSON.parse(res.body);
+    } catch {
+      throw new Error(`SiiPortalAuth: respuesta no-JSON de ${metodo} (consdcvinternetui): ${res.body.slice(0, 300)}`);
+    }
+    if (!Array.isArray(parsed.data)) {
+      const err = new Error(
+        `SiiPortalAuth: ${metodo} sin datos (posible validación de reCAPTCHA): ${JSON.stringify(parsed.respEstado ?? parsed).slice(0, 300)}`
+      );
+      err.code = 'RCV_DETALLE_RECAPTCHA';
+      throw err;
+    }
+    return parsed.data.map((d) => ({
+      ...d,
+      evento:    d.detEventoReceptor ?? null,
+      formaPago: d.detEventoReceptor === 'P' ? 'contado' : null,
+    }));
   }
 
   /**
