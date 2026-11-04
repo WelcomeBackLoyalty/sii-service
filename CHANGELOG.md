@@ -8,6 +8,8 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+## [2.45.0] - 2026-11-03
+
 ### Corregido
 
 - **Certificación: los folios libres de un CAF vencido ahora se anulan.** `CertRunner._anularSinUsar` excluía todo CAF en
