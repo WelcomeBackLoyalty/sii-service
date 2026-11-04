@@ -14,7 +14,7 @@
  * 
  * @module dte-sii/cert
  * @example
- * const { CertRunner, SetBasico } = require('@devlas/dte-sii/cert');
+ * const { CertRunner, SetBasico } = require('@welcome-back/sii-service/cert');
  * 
  * const runner = new CertRunner(config);
  * await runner.ejecutar();

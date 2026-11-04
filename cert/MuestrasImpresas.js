@@ -263,6 +263,8 @@ class MuestrasImpresas {
         mntBruto,
         emisor,
         receptor,
+        // RUTSolicita (Encabezado, tras Receptor): quien pidio el documento. El nombre va en Receptor.Contacto.
+        rutSolicita: encabezado?.RUTSolicita ? String(encabezado.RUTSolicita) : '',
         totales,
         transporte,
         detalle,
@@ -520,6 +522,7 @@ class MuestrasImpresas {
     <div class="receptor-row"><span class="receptor-label">Señor(es):</span> ${safeText(receptor?.RznSocRecep || '')} &nbsp;&nbsp;&nbsp; <span class="receptor-label">RUT:</span> ${safeText(receptor?.RUTRecep || '')}</div>
     <div class="receptor-row"><span class="receptor-label">Dirección:</span> ${safeText(receptor?.DirRecep || '')} &nbsp;&nbsp;&nbsp; <span class="receptor-label">Comuna:</span> ${safeText(receptor?.CmnaRecep || '')}</div>
     <div class="receptor-row"><span class="receptor-label">Giro:</span> ${safeText(receptor?.GiroRecep || '')}</div>
+    ${this._tieneSolicitante(doc) ? `<div class="receptor-row"><span class="receptor-label">Solicitante:</span> ${safeText(receptor?.Contacto || '')}${doc.rutSolicita ? ` &nbsp;&nbsp;&nbsp; <span class="receptor-label">RUT solicitante:</span> ${safeText(doc.rutSolicita)}` : ''}</div>` : ''}
   </div>
 
   ${trasladoHtml}
@@ -746,8 +749,14 @@ class MuestrasImpresas {
     return Math.max(leftH, rightH);
   }
 
-  _pdfCalcReceptorHeight() {
-    return PDF_LAYOUT.acuse.padY * 2 + PDF_LAYOUT.lineH.small * 3 + PDF_LAYOUT.gap.tiny * 2;
+  _pdfCalcReceptorHeight(doc) {
+    // Una fila mas (Solicitante / RUT solicitante) solo si el documento trae esos datos: sin ellos el recuadro no cambia.
+    const filas = this._tieneSolicitante(doc) ? 4 : 3;
+    return PDF_LAYOUT.acuse.padY * 2 + PDF_LAYOUT.lineH.small * filas + PDF_LAYOUT.gap.tiny * (filas - 1);
+  }
+
+  _tieneSolicitante(doc) {
+    return Boolean(doc?.rutSolicita || doc?.receptor?.Contacto);
   }
 
   _pdfCalcReferencesHeight(doc) {
@@ -876,7 +885,7 @@ class MuestrasImpresas {
 
   _pdfRenderReceptor(page, doc, fonts, y, H, W, M, rgb) {
     const receptor = doc.receptor || {};
-    const boxH     = this._pdfCalcReceptorHeight();
+    const boxH     = this._pdfCalcReceptorHeight(doc);
     const boxW     = W - 2 * M;
     const BLACK    = rgb(0,0,0);
     const GRAY     = rgb(0.5, 0.5, 0.5);
@@ -916,6 +925,22 @@ class MuestrasImpresas {
     const gLabel = 'Giro: ';
     this._pdfText(page, gLabel, px, py, H, fonts.bold, fs, BLACK);
     this._pdfText(page, safeText(receptor.GiroRecep || ''), px + fonts.bold.widthOfTextAtSize(gLabel, fs), py, H, fonts.normal, fs, BLACK);
+
+    // Fila 4: Solicitante + RUT solicitante (quien pidio el documento), solo si vienen en el XML
+    if (this._tieneSolicitante(doc)) {
+      py += lh + PDF_LAYOUT.gap.tiny;
+      const qLabel = 'Solicitante: ';
+      this._pdfText(page, qLabel, px, py, H, fonts.bold, fs, BLACK);
+      this._pdfText(page, safeText(receptor.Contacto || ''), px + fonts.bold.widthOfTextAtSize(qLabel, fs), py, H, fonts.normal, fs, BLACK);
+      if (doc.rutSolicita) {
+        const rsLabel = 'RUT solicitante: ';
+        const rsVal   = safeText(doc.rutSolicita);
+        const rsTotal = `${rsLabel}${rsVal}`;
+        const rsX     = W - M - PDF_LAYOUT.acuse.padX - fonts.normal.widthOfTextAtSize(rsTotal, fs);
+        this._pdfText(page, rsLabel, rsX, py, H, fonts.bold, fs, BLACK);
+        this._pdfText(page, rsVal,   rsX + fonts.bold.widthOfTextAtSize(rsLabel, fs), py, H, fonts.normal, fs, BLACK);
+      }
+    }
 
     return y + boxH;
   }
@@ -1234,7 +1259,7 @@ class MuestrasImpresas {
 
     const headerH    = this._pdfCalcHeaderHeight(doc, fonts, logoImage);
     const fechaH     = PDF_LAYOUT.lineH.normal;
-    const receptorH  = this._pdfCalcReceptorHeight();
+    const receptorH  = this._pdfCalcReceptorHeight(doc);
     const trasladoH  = (doc.tipoDte === 52 && doc.indTraslado) ? PDF_LAYOUT.lineH.small + PDF_LAYOUT.gap.small : 0;
     const refsH      = this._pdfCalcReferencesHeight(doc);
     const detalleH   = this._pdfCalcDetalleHeight(doc, fonts, W, M);

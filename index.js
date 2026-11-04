@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Devlas SpA — https://devlas.cl
 // Licencia MIT. Ver archivo LICENSE para mas detalles.
 /**
- * @devlas/dte-sii
+ * @welcome-back/sii-service
  *
  * Facturación y boletas electrónicas para el SII de Chile.
  *

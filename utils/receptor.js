@@ -8,7 +8,7 @@
  * @module dte-sii/utils/receptor
  */
 
-const { sanitizeSiiText, sanitizeGiroRecep } = require('./sanitize');
+const { sanitizeSiiText, sanitizeGiroRecep, assertLargoMaximo } = require('./sanitize');
 const { formatRutSii, validarRut } = require('./rut');
 
 // ============================================
@@ -129,12 +129,17 @@ function normalizeReceptor(receptor, esBoleta = false) {
     ? sanitizeGiroRecep(receptor.GiroRecep)
     : undefined;
 
+  // Contacto y CorreoRecep: maximo 80 en el XSD; pasarse tumba el sobre completo ("Error en Schema", codigoSii 7).
+  const contacto = receptor.Contacto ? sanitizeSiiText(receptor.Contacto) : undefined;
+  if (contacto) assertLargoMaximo(contacto, 80, 'Contacto');
+  if (receptor.CorreoRecep) assertLargoMaximo(receptor.CorreoRecep, 80, 'CorreoRecep');
+
   return {
     RUTRecep:    receptor.RUTRecep,
     ...(receptor.CdgIntRecep ? { CdgIntRecep: receptor.CdgIntRecep } : {}),
     RznSocRecep: sanitizeSiiText(receptor.RznSocRecep),
     ...(giroRecep ? { GiroRecep: giroRecep } : {}),
-    ...(receptor.Contacto   ? { Contacto:    receptor.Contacto }                   : {}),
+    ...(contacto ? { Contacto: contacto } : {}),
     ...(receptor.CorreoRecep ? { CorreoRecep: receptor.CorreoRecep }               : {}),
     DirRecep:    sanitizeSiiText(receptor.DirRecep),
     CmnaRecep:   receptor.CmnaRecep,

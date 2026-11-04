@@ -1,0 +1,31 @@
+# Publica el paquete en npm (publico) al crear un tag `vX.Y.Z`.
+# Antes de publicar corre lo mismo que el CI (suite y barrido de datos reales) y exige que el tag
+# coincida con la version de package.json. Una version publicada no se puede reemplazar.
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # procedencia (provenance) del paquete publicado
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm test
+      - run: npm run scan
+      - name: El tag coincide con la version del paquete
+        run: |
+          test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}" || { echo "El tag ${GITHUB_REF_NAME} no coincide con package.json"; exit 1; }
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

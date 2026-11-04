@@ -1,6 +1,6 @@
 ---
 name: release-dte-sii
-description: Cómo se publica una versión de @devlas/dte-sii (elegir número, commit de release, tag, npm publish y subir el pin en el consumidor). Usar SIEMPRE que se pida publicar, cortar una versión o "llevar a producción" un cambio de esta librería. Nunca se hace tag ni npm publish a mano sin seguirla.
+description: Cómo se publica una versión de @welcome-back/sii-service (elegir número, commit de release, tag, npm publish y subir el pin en el consumidor). Usar SIEMPRE que se pida publicar, cortar una versión o "llevar a producción" un cambio de esta librería. Nunca se hace tag ni npm publish a mano sin seguirla.
 ---
 
 # Publicar una versión de dte-sii
@@ -17,7 +17,7 @@ mantiene el repo con su sesión de npm. **Un agente prepara el release y nunca e
 
 ```bash
 git fetch --tags origin
-npm view @devlas/dte-sii version      # lo que hay publicado hoy
+npm view @welcome-back/sii-service version      # lo que hay publicado hoy
 git show origin/master:package.json | grep '"version"'
 git tag --sort=-creatordate | head -3
 gh pr list --state open                # que no haya otro release en vuelo
@@ -59,25 +59,25 @@ npm pack --dry-run                      # que el contenido publicado sea el espe
 Mergea cuando el CI esté verde (el merge puede quedar bloqueado unos segundos tras un push
 mientras corren los checks: espera, no uses `--admin`).
 
-## 3. Publicar (solo con orden expresa, lo ejecuta el usuario)
+## 3. Publicar (solo con orden expresa)
 
-Desde un checkout limpio de `master` con la versión ya mergeada:
+La publicación a npm la hace el workflow `.github/workflows/publish.yml` al crear un tag `vX.Y.Z`
+(corre la suite y el scan, exige que el tag coincida con `package.json` y publica con procedencia).
+Ya no se hace `npm publish` a mano. Desde un checkout limpio de `master` con la versión ya mergeada:
 
 ```bash
 git switch master && git pull
-npm view @devlas/dte-sii version        # debe seguir siendo la anterior
-npm publish                             # requiere sesión de npm del mantenedor
-git tag vX.Y.Z && git push origin vX.Y.Z
+npm view @welcome-back/sii-service version   # debe seguir siendo la anterior
+git tag vX.Y.Z && git push origin vX.Y.Z     # dispara la publicación
 gh release create vX.Y.Z --notes-file <(sed -n '/^## \[X.Y.Z\]/,/^## \[/p' CHANGELOG.md | sed '$d')
 ```
 
-El agente le da estos comandos al usuario para que los corra con `! <comando>`. Si el usuario
-ordena expresamente que el agente publique y hay sesión de npm, se ejecutan en este orden.
-Después verifica: `npm view @devlas/dte-sii version` debe mostrar X.Y.Z.
+Después verifica: `npm view @welcome-back/sii-service version` debe mostrar X.Y.Z. Si el workflow falla antes de
+publicar, no hay versión en npm: se corrige y se vuelve a empujar el mismo tag solo si nada se publicó.
 
 ## 4. Subir el pin en el consumidor
 
-Cada consumidor fija la versión exacta. Hoy: `devlas-services/services/dte` (`@devlas/dte-sii`
+Cada consumidor fija la versión exacta. Hoy: `node-monorepo/services/dte-service` (`@welcome-back/sii-service`
 en su `package.json`, y el lockfile de pnpm). Se hace en el repo del consumidor, en su propio PR:
 
 1. Cambiar el pin a X.Y.Z y regenerar el lockfile.

@@ -16,12 +16,26 @@ const {
   formatBase64InXml,
   normalizeEmisor,
   normalizeReceptor,
+  formatRutSii,
+  validarRut,
   calcularTotalesDesdeDetalle,
   TASA_IVA_DEFAULT,
   TIPOS_BOLETA,
   TASA_IVA,
 } = require('./utils');
 const { serializeNode, escapeAttr, escapeText, buildSignedInfo, buildSignature } = require('./utils/c14n');
+
+/**
+ * RUTSolicita: RUT de quien pide el DTE (XSD DTE_v10, Encabezado, tras Receptor, opcional, "RUT que solicita el DTE en
+ * Venta a Publico"). La boleta no lo tiene en su esquema, asi que ahi no se emite. Lanza si el RUT no es valido: el SII
+ * rechaza el sobre completo por un solo documento fuera de esquema.
+ */
+function buildRutSolicita(rut, esBoleta) {
+  if (rut === undefined || rut === null || String(rut).trim() === '') return undefined;
+  if (esBoleta) return undefined;
+  if (!validarRut(String(rut))) throw new Error(`RUTSolicita invalido: ${rut}`);
+  return formatRutSii(String(rut));
+}
 
 /**
  * Sanitiza y valida el nombre de un ítem antes de que entre al XML.
@@ -120,9 +134,12 @@ class DTE {
           RUTRecep: d.receptor?.RUTRecep ?? '66666666-6',
           RznSocRecep: sanitizeSiiText(d.receptor?.RznSocRecep ?? 'Consumidor Final'),
           ...(d.receptor?.GiroRecep ? { GiroRecep: d.receptor.GiroRecep } : {}),
+          ...(!esBoleta && d.receptor?.Contacto ? { Contacto: d.receptor.Contacto } : {}),
+          ...(!esBoleta && d.receptor?.CorreoRecep ? { CorreoRecep: d.receptor.CorreoRecep } : {}),
           DirRecep: sanitizeSiiText(d.receptor?.DirRecep ?? 'Sin Direccion'),
           CmnaRecep: d.receptor?.CmnaRecep ?? 'Santiago',
         },
+        ...(d.rutSolicita && !esBoleta ? { RUTSolicita: d.rutSolicita } : {}),
         Totales: totales,
       },
       Detalle: detalle,
@@ -224,12 +241,13 @@ class DTE {
     const idDoc = this._buildIdDoc(enc.IdDoc, esBoleta);
     const emisor = this._buildEmisor(enc.Emisor, esBoleta);
     const receptor = this._buildReceptor(enc.Receptor, esBoleta);
+    const rutSolicita = buildRutSolicita(enc.RUTSolicita, esBoleta);
     const detalle = this._buildDetalle(det);
     
     this.documento = {
       Documento: {
         '@_ID': this.id,
-        Encabezado: { IdDoc: idDoc, Emisor: emisor, Receptor: receptor, ...(enc.Transporte ? { Transporte: enc.Transporte } : {}), Totales: enc.Totales },
+        Encabezado: { IdDoc: idDoc, Emisor: emisor, Receptor: receptor, ...(rutSolicita ? { RUTSolicita: rutSolicita } : {}), ...(enc.Transporte ? { Transporte: enc.Transporte } : {}), Totales: enc.Totales },
         Detalle: detalle,
         ...(this.datos.DscRcgGlobal ? { DscRcgGlobal: this.datos.DscRcgGlobal } : {}),
         ...(this.datos.Referencia  ? { Referencia:  this.datos.Referencia  } : {}),
