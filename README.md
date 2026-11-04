@@ -681,6 +681,7 @@ entrega cosas diferentes. Ninguno reemplaza a los otros:
 | Listar cada documento del período (folio, fecha, montos), sin boletas | `obtenerDetalleDtes()` | `consemitidosinternetui` |
 | Totales oficiales por tipo de documento, incluidas las boletas (agregadas por mes), y estado contable | `obtenerResumenRegistro()` | `consdcvinternetui` |
 | Clasificación de un documento de compra y cambio de su tipo de compra | `obtenerDetalleDocumentoCompra()` y relacionadas | `complementoscvui` |
+| Detalle por documento del RCV oficial, con evento del receptor (`P` = forma de pago contado) y sucursal | `obtenerDetalleRegistro()` | `consdcvinternetui` |
 | XML completo del documento (ítems, referencias, TED) | `descargarRespaldoMipyme()` | Respaldo MIPYME |
 
 Puntos a tener en cuenta:
@@ -689,8 +690,9 @@ Puntos a tener en cuenta:
   usa para verificar boletas obtendrá 0 aunque el SII las haya aceptado. Use
   `obtenerResumenRegistro()`.
 - `obtenerResumenRegistro()` entrega **totales por tipo de documento, no documentos individuales**.
-  Su detalle por documento (`getDetalleCompra`, `getDetalleVenta`) exige reCAPTCHA v3 y esta
-  librería no lo automatiza.
+  Su detalle por documento (`getDetalleCompra`, `getDetalleVenta`) lo cubre
+  `obtenerDetalleRegistro()`: el portal manda un `tokenRecaptcha` fijo que hoy el SII acepta, y si
+  deja de hacerlo la función lanza `RCV_DETALLE_RECAPTCHA`.
 - Por eso `obtenerDetalleDtes()` sigue siendo la única vía de listado por documento sin captcha.
   No está obsoleta, tiene esa limitación.
 - Solo `obtenerDetalleDtes()` informa el evento del receptor (`dehOrdenEvento`: 2 acuse de recibo,

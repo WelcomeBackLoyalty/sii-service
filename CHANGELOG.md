@@ -8,6 +8,14 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+### Added
+
+- `SiiPortalAuth.obtenerDetalleRegistro()`: detalle por documento del RCV oficial
+  (`consdcvinternetui`, `getDetalleCompra` y `getDetalleVenta`). Entrega el evento del receptor
+  (`P` = forma de pago contado, medido en el portal) y la sucursal (`CdgSIISucur`). No hay fecha
+  de pago ni vencimiento. El portal manda un `tokenRecaptcha` fijo que hoy el SII acepta; si
+  deja de hacerlo la función lanza `RCV_DETALLE_RECAPTCHA`.
+
 ## [2.45.0] - 2026-11-03
 
 ### Corregido
