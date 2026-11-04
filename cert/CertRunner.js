@@ -1100,7 +1100,8 @@ class CertRunner {
 
   /**
    * Pide `faltante` folios nuevos al SII, de una o en tandas según el tope.
-   * Nunca anula: eso lo decide `solicitarCafs` como último paso.
+   * No anula como respuesta a un bloqueo: eso lo decide `solicitarCafs` como último paso. Única
+   * excepción, en certificación: antes de pedir tandas libera los folios libres de CAF vencidos.
    *
    * @returns {Promise<{ok, cafPaths: string[], otorgados, maxAutor, foliosDisp, errorCode?, error?}>}
    * @private
@@ -1130,6 +1131,16 @@ class CertRunner {
     });
 
     if (tope && !tope.sinTope && tope.maxAutor != null && tope.maxAutor < faltante) {
+      // Con un CAF vencido en certificación, cada tanda de 1 folio suma a FOLIOS_DISP y empeora el
+      // tope hasta el bloqueo duro. Se liberan primero SOLO los folios libres de CAF vencidos (nunca
+      // otros), y se vuelve a medir el tope antes de pedir.
+      if (this.ambiente !== 'produccion') {
+        const liberados = await this._anularVencidosAntesDeTandas(tipoDte);
+        if (liberados > 0) {
+          const nuevo = await this._consultarTopeCaf(tipoDte);
+          return tandas(faltante, nuevo);
+        }
+      }
       return tandas(faltante, tope);
     }
 
@@ -1166,6 +1177,66 @@ class CertRunner {
   }
 
   /**
+   * Rangos de los CAF vencidos entre `rutas`, que no estén en mano (un CAF en mano es el que
+   * se va a usar, vencido o no se decide en otro lado). Un CAF ilegible no cuenta como vencido.
+   * @private
+   */
+  _rangosVencidos(rutas, enMano = []) {
+    const mano = new Set(enMano);
+    const out = [];
+    for (const p of rutas) {
+      if (mano.has(p)) continue;
+      try {
+        const { CAF } = require('../index');
+        if (!CAF.vencidoDesdeXml(fs.readFileSync(p, 'utf8'))) continue;
+        const r = this._rangoDelCaf(p);
+        if (r) out.push([r.desde, r.hasta]);
+      } catch { /* ilegible: no se toca */ }
+    }
+    return out;
+  }
+
+  /**
+   * Anula los folios libres de cada rango vencido, uno por uno y acotado a ese rango (sin corte
+   * de antigüedad, pero sin barrer el historial). Excluye lo que siga vigente.
+   * @returns {Promise<number>} folios anulados
+   * @private
+   */
+  async _anularRangosVencidos(tipoDte, vencidos, excluirVigentes) {
+    // Un rango vencido que se solape con uno vigente no se anula: ante la duda, no anular.
+    const vigentes = excluirVigentes.filter(([ed, eh]) => !vencidos.some(([vd, vh]) => vd === ed && vh === eh));
+    const libres = vencidos.filter(([d, h]) => !vigentes.some(([ed, eh]) => d <= eh && h >= ed));
+    let total = 0;
+    for (const [desde, hasta] of libres) {
+      console.warn(`[CertRunner] Tipo ${tipoDte}: CAF vencido ${desde}-${hasta}: anulando sus folios libres (certificación)...`);
+      try {
+        const r = await this.folioService.anularFolios({
+          tipoDte, folioDesde: desde, folioHasta: hasta,
+          maxRangos: 10, soloUltimosDias: null, excluir: vigentes,
+        });
+        total += r.totalAnulados || 0;
+      } catch (err) {
+        console.warn(`[CertRunner] Tipo ${tipoDte}: no se pudo anular el CAF vencido ${desde}-${hasta}: ${err.message}`);
+      }
+    }
+    if (total) console.log(` Tipo ${tipoDte}: ${total} folio(s) de CAF vencidos anulados`);
+    return total;
+  }
+
+  /** Anula los folios libres de los CAF vencidos del tipo, si hay. @private */
+  async _anularVencidosAntesDeTandas(tipoDte) {
+    const rutas = new Set();
+    try {
+      for (const p of (this.folioService.listarCafs?.(tipoDte) ?? [])) rutas.add(p);
+    } catch { return 0; }
+    const vencidos = this._rangosVencidos(rutas);
+    if (!vencidos.length) return 0;
+    const vigentes = [...rutas].map((p) => this._rangoDelCaf(p)).filter(Boolean).map((r) => [r.desde, r.hasta])
+      .filter(([d, h]) => !vencidos.some(([vd, vh]) => vd === d && vh === h));
+    return this._anularRangosVencidos(tipoDte, vencidos, vigentes);
+  }
+
+  /**
    * Anula folios sin usar de este tipo, excepto los de CAF que están en disco o en mano.
    *
    * ACOTADA a propósito. Sin corte por antigüedad barre el historial completo de la empresa
@@ -1189,6 +1260,17 @@ class CertRunner {
       .map((p) => this._rangoDelCaf(p))
       .filter(Boolean)
       .map((r) => [r.desde, r.hasta]);
+
+    // Solo en certificación: los folios libres de un CAF VENCIDO no sirven para emitir (el SII
+    // rechaza cada DTE timbrado con él) pero siguen contando en FOLIOS_DISP y aprietan el tope.
+    // Excluirlos como "CAF en disco" los dejaba sin anular nunca (caso WB-3532: CAF de 2022,
+    // folios 1-90), y el corte de 180 días los descartaba aunque se pasara. En producción
+    // todo sigue excluido: ahí los folios son del comercio.
+    const vencidos = this.ambiente === 'produccion' ? [] : this._rangosVencidos(rutas, enMano);
+    if (vencidos.length) {
+      const anulados = await this._anularRangosVencidos(tipoDte, vencidos, excluir);
+      if (anulados > 0) return anulados;
+    }
 
     console.warn(
       res.errorCode === 'TIMBRAJE_BLOQUEADO'

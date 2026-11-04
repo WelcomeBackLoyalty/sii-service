@@ -8,6 +8,15 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+### Corregido
+
+- **Certificación: los folios libres de un CAF vencido ahora se anulan.** `CertRunner._anularSinUsar` excluía todo CAF en
+  disco y cortaba a 180 días en maullin, así que un CAF vencido (caso WB-3532: folios 1-90 de 2022) seguía contando en
+  `FOLIOS_DISP`, apretaba el tope y terminaba en bloqueo duro. Ahora, solo fuera de producción, se anula cada rango de un
+  CAF vencido (acotado a ese rango, sin corte de antigüedad y respetando los CAF vigentes o en mano). En producción nada
+  cambia. Antes de pedir tandas por tope se liberan esos mismos folios y se vuelve a medir el tope.
+  `EMPRESA_NO_AUTORIZADA` y `TIMBRAJE_BLOQUEADO` ya se devolvían con códigos distintos desde `CafSolicitor`; no se tocó.
+
 ## [2.44.0] - 2026-11-03
 
 ### Cambiado
