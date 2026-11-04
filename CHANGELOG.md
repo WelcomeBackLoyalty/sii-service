@@ -8,6 +8,8 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+## [2.44.0] - 2026-11-03
+
 ### Cambiado
 
 - **El paquete se publica como `@welcome-back/sii-service`** en npm (fork de `dte-sii` 2.43.0). Cambia solo el nombre y el registro: la API es la misma.
