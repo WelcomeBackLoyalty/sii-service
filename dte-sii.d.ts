@@ -622,7 +622,11 @@ export class EnviadorSII {
   consultarEstadoDte(params: object): Promise<object>;
 }
 
-/** Estado de un DTE recibido según su último evento en el Registro de Aceptación/Reclamo. */
+/**
+ * Estado de un DTE recibido en el Registro de Aceptación/Reclamo, por prioridad:
+ * reclamada (RCD, RFP o RFT) > aceptada (ACD) > acuse_recibo (ERM) > sin_accion.
+ * NCA y ENC no cambian el estado.
+ */
 export type EstadoReceptorDte = 'aceptada' | 'acuse_recibo' | 'reclamada' | 'sin_accion';
 
 /**
@@ -640,6 +644,38 @@ export interface EventoReclamoDte {
   fechaEvento: string;
 }
 
+/** Evento normalizado del Registro de Aceptación/Reclamo. */
+export interface EventoReceptorDte {
+  /** ACD, ERM, RCD, RFP, RFT, o los informativos NCA y ENC. */
+  codigo: string;
+  descripcion: string;
+  /** RUT con DV, por ejemplo '76543210-3'. Vacío si el SII no lo informa. */
+  rutResponsable: string;
+  /** Tal como la entrega el SII: 'DD-MM-AAAA HH:mm:ss', hora de Chile. */
+  fecha: string;
+}
+
+/** Detalle del estado del receptor de un DTE (`consultarEstadoReceptorDetalle`). */
+export interface EstadoReceptorDetalle {
+  estado: EstadoReceptorDte;
+  /** 15 con eventos; 16 sin eventos; 18 documento no recibido. */
+  codResp: number;
+  descResp: string;
+  /** El reclamo más reciente, o null si no hay reclamo. */
+  reclamo: { codigo: 'RCD' | 'RFP' | 'RFT'; descripcion: string; fecha: string } | null;
+  /** NC recibida que referencia al documento (NCA si la hay, si no ENC), o null. No cambia `estado`. */
+  notaCredito: { codigo: 'NCA' | 'ENC'; descripcion: string; fecha: string } | null;
+  eventos: EventoReceptorDte[];
+}
+
+/** Fecha de recepción del DTE en el SII (`consultarFechaRecepcionSii`). */
+export interface FechaRecepcionSii {
+  /** Tal como la entrega el SII, por ejemplo '21-02-2017 19:02:03' (hora de Chile). */
+  fechaRecepcion: string;
+  /** 'AAAA-MM-DDTHH:mm:ss' en hora de Chile, sin zona. */
+  fechaRecepcionIso: string;
+}
+
 /** Respuesta del web service, con `codResp` numérico y `descResp` en texto, tal como los entrega el SII. */
 export interface RespuestaReclamoDte {
   codResp: number;
@@ -654,16 +690,42 @@ export class WsReclamo {
   constructor(
     certificado: Certificado,
     ambiente: 'certificacion' | 'produccion',
-    options?: { useTokenCache?: boolean },
+    options?: {
+      useTokenCache?: boolean;
+      /** Tiempo máximo de cada llamada SOAP en ms (por defecto 20000). Al vencer lanza SII_TIMEOUT. */
+      timeoutMs?: number;
+    },
   );
-  /** Historial de eventos de un DTE recibido. */
+  /** Historial de eventos de un DTE recibido. Lanza SII_INVALID_RESPONSE si la respuesta no trae codResp. */
   listarEventosHistDoc(
     rutEmisor: number | string, dvEmisor: string, tipoDoc: number | string, folio: number | string,
   ): Promise<RespuestaReclamoDte & { eventos: EventoReclamoDte[] }>;
-  /** Estado resumido según el último evento. 'sin_accion' cuando ningún evento lo determina. */
+  /**
+   * Estado resumido (igual a `consultarEstadoReceptorDetalle(...).estado`). Lanza DteSiiError si
+   * el SII responde un codResp distinto de 15, 16 o 18.
+   */
   consultarEstadoReceptor(
     rutEmisor: number | string, dvEmisor: string, tipoDoc: number | string, folio: number | string,
   ): Promise<EstadoReceptorDte>;
+  /**
+   * Estado con reclamo, nota de crédito y eventos. codResp 16 y 18 dan 'sin_accion'; -1 lanza
+   * SII_CONNECTION_FAILED, los demás códigos documentados SII_REJECTED y uno desconocido
+   * SII_INVALID_RESPONSE, con `details.codResp` y `details.descResp`.
+   */
+  consultarEstadoReceptorDetalle(
+    rutEmisor: number | string, dvEmisor: string, tipoDoc: number | string, folio: number | string,
+  ): Promise<EstadoReceptorDetalle>;
+  /** Deriva el estado desde una respuesta de `listarEventosHistDoc` ya obtenida, sin red. */
+  static derivarEstadoReceptor(
+    respuesta: RespuestaReclamoDte & { eventos?: EventoReclamoDte[] },
+  ): EstadoReceptorDetalle;
+  /**
+   * Fecha de recepción del DTE en el SII, desde la que corren los 8 días para reclamar.
+   * null si el SII responde vacío; lanza SII_INVALID_RESPONSE si responde algo que no es fecha.
+   */
+  consultarFechaRecepcionSii(
+    rutEmisor: number | string, dvEmisor: string, tipoDoc: number | string, folio: number | string,
+  ): Promise<FechaRecepcionSii | null>;
   /** Registra una acción sobre un DTE recibido. Lanza si `accionDoc` no es una acción válida. */
   ingresarAceptacion(
     rutEmisor: number | string, dvEmisor: string, tipoDoc: number | string, folio: number | string,

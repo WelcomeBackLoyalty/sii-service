@@ -8,6 +8,43 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+### Corregido
+
+- **`WsReclamo.consultarEstadoReceptor`: una factura reclamada que luego recibía una nota de crédito
+  quedaba como `sin_accion`.** El estado salía del último evento de `listarEventosHistDoc` y NCA/ENC
+  se mapeaban a `sin_accion`. Según el "Webservice Registro Reclamo DTE v1.2" del SII
+  (https://www.sii.cl/factura_electronica/Webservice_Registro_Reclamo_DTE_V1.2.pdf), solo ACD, ERM,
+  RCD, RFP y RFT se registran (NCA y ENC son informativos) y un reclamo no puede convivir con ACD ni
+  ERM. Ahora el estado sale por prioridad: `reclamada` (cualquier RCD, RFP o RFT) > `aceptada` (ACD) >
+  `acuse_recibo` (ERM) > `sin_accion`. El valor devuelto sigue siendo el mismo texto.
+- **Las llamadas SOAP de `WsReclamo` (semilla, token y WS) tienen tiempo máximo.** Antes no tenían
+  ninguno y una conexión colgada esperaba el timeout del sistema operativo. Por defecto 20 s,
+  configurable con `options.timeoutMs`; al vencer lanza `DteSiiError` con `SII_TIMEOUT`.
+- **`WsReclamo`: los textos de la respuesta (`descEvento`, `descResp`) traían referencias numéricas
+  sin decodificar.** Medido en el SII de certificación (2026-11-16): `listarEventosHistDoc` entrega
+  `Mercader&#237;as ` (la í como `&#237;` y un espacio al final) para RFP. Ahora se decodifican
+  `&#NNN;` y `&#xHH;` y se quitan los espacios de los extremos en los campos de
+  `listarEventosHistDoc` e `ingresarAceptacion`. Los códigos (`codEvento`, `codResp`) no cambian.
+
+### Agregado
+
+- `WsReclamo.consultarEstadoReceptorDetalle()`: el estado junto con `codResp`, `descResp`, `reclamo`
+  (el más reciente), `notaCredito` (NCA o ENC con su fecha) y la lista de `eventos` normalizada.
+  `WsReclamo.derivarEstadoReceptor()` hace lo mismo sobre una respuesta ya obtenida, sin red.
+- `WsReclamo.consultarFechaRecepcionSii()`: fecha y hora de recepción del DTE en el SII, desde la que
+  corren los 8 días para reclamar. Devuelve `{ fechaRecepcion, fechaRecepcionIso }` o null.
+
+### Cambiado (cambio de contrato)
+
+- **`consultarEstadoReceptor` ahora lanza en vez de devolver `sin_accion` cuando el SII responde un
+  error.** Solo codResp 15, 16 y 18 son respuestas válidas; -1 lanza `SII_CONNECTION_FAILED`
+  (reintentable), los errores documentados (1, 2, 3, 8, 10, 14, 17) `SII_REJECTED` y un código no
+  documentado `SII_INVALID_RESPONSE`, con `details.codResp` y `details.descResp`. Antes esos casos se
+  informaban como `sin_accion`, lo que podía ocultar un reclamo. Quien guarde el estado debe capturar
+  el error para no sobrescribir el valor anterior.
+- **`listarEventosHistDoc` lanza `SII_INVALID_RESPONSE` si la respuesta no trae `codResp`.** Antes se
+  asumía 16 (sin eventos).
+
 ## [2.46.0] - 2026-11-04
 
 ### Added
