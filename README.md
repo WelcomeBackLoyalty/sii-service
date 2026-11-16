@@ -787,33 +787,66 @@ la sección de arriba.
 
 ## Aceptación y reclamo de DTE (WsReclamo)
 
-`WsReclamo` implementa el web service `WSRECLAMO` del SII (v1.2) para registrar eventos de aceptación/rechazo de DTE por parte del receptor.
-
-> `WsReclamo` no se re-exporta desde `index.js`. Importar directamente:
+`WsReclamo` implementa el web service de Registro de Aceptación/Reclamo de DTE del SII
+(fuente oficial: [Webservice Registro Reclamo DTE v1.2](https://www.sii.cl/factura_electronica/Webservice_Registro_Reclamo_DTE_V1.2.pdf),
+copia en `docs/`). Se exporta desde `index.js`.
 
 ```javascript
-const WsReclamo = require('@devlas/dte-sii/WsReclamo')
-const { Certificado } = require('@devlas/dte-sii')
+const { Certificado, WsReclamo } = require('@welcome-back/sii-service')
 
-const ws = new WsReclamo(new Certificado(fs.readFileSync('empresa.pfx'), 'clave'), 'produccion')
-
-// Consultar historial de eventos de un DTE
-const eventos = await ws.listarEventosHistDoc({
-  rutEmisor:   '76543210-K',
-  tipoDTE:     33,
-  folio:       1,
-  rutReceptor: '12345678-9',
+const ws = new WsReclamo(new Certificado(fs.readFileSync('empresa.pfx'), 'clave'), 'produccion', {
+  timeoutMs: 20000, // opcional: tope de cada llamada SOAP (semilla, token y WS); por defecto 20 s
 })
 
-// Consultar estado desde la perspectiva del receptor
-const estado = await ws.consultarEstadoReceptor({ ... })
+// Parámetros: RUT del emisor sin DV, DV, tipo de documento (33, 34 o 43) y folio
+const historial = await ws.listarEventosHistDoc('76543210', '3', 33, 101)
+// { codResp: 15, descResp, eventos: [{ codEvento, descEvento, rutResponsable, dvResponsable, fechaEvento }] }
 
-// Registrar aceptación (ACD) o reclamo (RCD)
-await ws.ingresarAceptacion({
-  rutEmisor: '76543210-K', tipoDTE: 33, folio: 1,
-  accion: 'ACD', // ACD=Aceptado, RCD=Reclamado, ERM=Otorga Mercaderías
-})
+const estado = await ws.consultarEstadoReceptor('76543210', '3', 33, 101)
+// 'reclamada' | 'aceptada' | 'acuse_recibo' | 'sin_accion'
+
+const detalle = await ws.consultarEstadoReceptorDetalle('76543210', '3', 33, 101)
+// {
+//   estado: 'reclamada',
+//   codResp: 15,
+//   descResp: 'Listado de eventos del documento',
+//   reclamo: { codigo: 'RCD', descripcion: '...', fecha: '03-11-2026 10:00:00' },
+//   notaCredito: { codigo: 'NCA', descripcion: '...', fecha: '05-11-2026 09:30:00' },
+//   eventos: [{ codigo: 'RCD', descripcion: '...', rutResponsable: '76543210-3', fecha: '03-11-2026 10:00:00' }, ...],
+// }
+
+const recepcion = await ws.consultarFechaRecepcionSii('76543210', '3', 33, 101)
+// { fechaRecepcion: '21-02-2017 19:02:03', fechaRecepcionIso: '2017-02-21T19:02:03' } (hora de Chile) o null
+
+// Registrar aceptación o reclamo: ACD, ERM, RCD, RFP o RFT
+await ws.ingresarAceptacion('76543210', '3', 33, 101, 'ACD')
 ```
+
+**Cómo se deriva el estado.** Según las combinaciones que el SII admite en
+`ingresarAceptacionReclamoDoc`, ACD y ERM pueden convivir en cualquier orden y un reclamo
+puede seguir a otro reclamo, pero un reclamo después de ACD o ERM se rechaza (codResp 11 y 13)
+y ACD o ERM después de un reclamo también (6 y 12). Por eso el estado sale por prioridad y no
+del último evento de la lista:
+
+| Prioridad | Estado | Condición |
+|---|---|---|
+| 1 | `reclamada` | Hay algún RCD, RFP o RFT. `reclamo` informa el más reciente |
+| 2 | `aceptada` | Hay ACD |
+| 3 | `acuse_recibo` | Hay ERM |
+| 4 | `sin_accion` | Ninguno de los anteriores, o codResp 16 (sin eventos) o 18 (no recibido) |
+
+NCA (nota de crédito de anulación recibida que referencia al documento) y ENC (nota de
+crédito distinta de anulación) son eventos informativos que el WS no registra: no cambian el
+estado y se informan en `notaCredito` (la NCA si existe, si no la ENC).
+
+**Errores.** Cualquier otro codResp de `listarEventosHistDoc` lanza `DteSiiError` con
+`details.codResp` y `details.descResp`: `-1` (error interno, reintentar) con
+`SII_CONNECTION_FAILED`, los errores documentados (1, 2, 3, 8, 10, 14, 17) con `SII_REJECTED`
+y un código no documentado con `SII_INVALID_RESPONSE`. Una llamada sin respuesta dentro de
+`timeoutMs` lanza `SII_TIMEOUT`.
+
+La aceptación tácita (8 días corridos desde la recepción en el SII sin reclamo) no es un
+evento del WS: se calcula en el consumidor con `consultarFechaRecepcionSii`.
 
 ---
 
