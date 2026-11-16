@@ -8,6 +8,8 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+## [3.0.0] - 2026-11-16
+
 ### Corregido
 
 - **`WsReclamo.consultarEstadoReceptor`: una factura reclamada que luego recibía una nota de crédito
