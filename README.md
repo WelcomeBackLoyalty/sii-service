@@ -574,6 +574,49 @@ const datos = await auth.obtenerDatosEmpresa()
 const cookies = await SiiPortalAuth.getCookieStringForPfx(cert)
 ```
 
+### SiiFichaEmpresa: ficha de la empresa
+
+El SII retiró en noviembre de 2026 las páginas `cvc_cgi/dte/ad_empresa1..4`. La ficha ("Actualización
+de datos del contribuyente") ahora es la app `sii-muyd-inter`, con una API JSON en
+`https://www2.sii.cl/app/sii-muyd/ct/{rut}-{dv}/` (`www2c.sii.cl` en certificación).
+`obtenerDatosEmpresa` ya lee la resolución desde aquí.
+
+```javascript
+const { SiiFichaEmpresa } = require('@welcome-back/sii-service')
+const SiiPortalAuth = require('@welcome-back/sii-service/SiiPortalAuth.js')
+
+const auth  = new SiiPortalAuth({ pfxBuffer, pfxPassword })
+const ficha = new SiiFichaEmpresa({ auth, ambiente: 'produccion' })
+
+const actual = await ficha.leerFicha('76543210-K')
+// actual.fechaResolucion, actual.resolucion, actual.mailContactoSii, ...
+
+const { antes, despues } = await ficha.actualizarFicha('76543210-K', {
+  mailContactoSii: 'resultados@ejemplo.cl',
+})
+```
+
+Cómo funciona por dentro (medido contra el SII con login por certificado, sin clave tributaria):
+
+| Paso | Llamada |
+|---|---|
+| 1 | GET `/sii-muyd-inter/` (fija cookies del SPA) |
+| 2 | GET `/app/session/status` (da el `userId` del titular) |
+| 3 | GET `ct/{rut}-{dv}/esUsuarioAdministrador` |
+| 4 | GET `ct/{rut}-{dv}/obtenerEmpresa`, y para grabar PUT `ct/{rut}-{dv}/actualizarEmpresa` con la ficha completa |
+
+- Se envían todas las cookies del login, incluidas las `NETSCAPE_LIVEWIRE.*`.
+- Sin cabeceras de navegador (user-agent de Chrome, `Referer` del SPA, `Sec-Fetch-*`,
+  `X-SII-SESSION-USER-AUTH-TYPE: CT`, `X-SII-SESSION-USER-ID` del titular), todo `/app/sii-muyd/*`
+  responde 401.
+- No se llama `existEmpresa`: responde 428 (pide verificación en dos pasos) y no hace falta.
+- Al grabar se manda la ficha completa leída, cambiando solo lo pedido, con
+  `rutResponsable`/`dvResponsable` del titular. Lo omitido no tiene garantía de conservarse.
+- Errores (`err.code`, `err.status`, `err.body` sin truncar): `FICHA_SESION_INVALIDA` (401, se
+  reintenta una vez con sesión nueva si la sesión es propia), `FICHA_REQUIERE_CLAVE_TRIBUTARIA`
+  (403) y `FICHA_REQUIERE_MFA` (428), que no se reintentan, y `FICHA_NO_CONFIRMADA` si la lectura
+  posterior no tiene los valores grabados.
+
 #### Caché de sesión: un mapa por certificado
 
 Un login contra `zeusr.sii.cl` es un handshake con certificado, **caro y contado por el SII**,
