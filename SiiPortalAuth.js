@@ -14,8 +14,8 @@
  *          → herculesr SÍ solicita cert en el TLS handshake inicial (a diferencia de zeusr)
  *          → SII extrae el RUT del campo serialNumber del certificado
  *          → responde con set-cookie: NETSCAPE_LIVEWIRE.* (sesión activa)
- *  3. POST maullin.sii.cl/cvc_cgi/dte/ad_empresa2   body: RUT_EMP=XXXXX&DV_EMP=X
- *          → devuelve tabla HTML con datos del contribuyente
+ *  3. Fecha y número de resolución: API JSON de la ficha de la empresa (SiiFichaEmpresa,
+ *     www2.sii.cl/app/sii-muyd). Las páginas antiguas ad_empresa1..4 ya no existen.
  *
  * @module SiiPortalAuth
  */
@@ -434,7 +434,12 @@ class SiiPortalAuth {
           // algunos servicios más nuevos (ej. complementoscvui) sí declaran "charset=UTF-8"
           // explícito, y hay que respetarlo o se corrompen tildes/ñ (RaÃ­ces, ComÃºn, etc.).
           const isSiiHost = url.hostname.endsWith('.sii.cl');
-          const encoding = /charset=utf-?8/i.test(ct)
+          // JSON sin charset declarado es UTF-8 (RFC 8259): leerlo como latin1 rompería las tildes
+          // y, al grabar la ficha completa de vuelta, las dejaría corruptas en el SII.
+          // Limitado a la app nueva (www2/www2c /app/) para no cambiar cómo se leen otros servicios.
+          const esJsonSinCharset = /^www2c?\.sii\.cl$/.test(url.hostname) && url.pathname.startsWith('/app/') &&
+            /application\/json/i.test(ct) && !/charset=/i.test(ct);
+          const encoding = (/charset=utf-?8/i.test(ct) || esJsonSinCharset)
             ? 'utf8'
             : (isSiiHost || /iso-8859|latin-1|windows-1252/i.test(ct)) ? 'latin1' : 'utf8';
           const bodyStr = buf.toString(encoding);
@@ -609,25 +614,26 @@ class SiiPortalAuth {
   }
 
   /**
-   * Verifica si una sesión cacheada sigue activa haciendo un GET liviano.
-   * Si el SII redirige al login → sesión expirada.
+   * Verifica si una sesión cacheada sigue activa haciendo un GET liviano a
+   * `www2.sii.cl/app/session/status`: 200 con `userId` si la sesión está viva, 401 si no.
+   * Antes se usaba `maullin.sii.cl/cvc_cgi/dte/ad_empresa1`, que el SII retiró (2026-11-17):
+   * con esa página toda sesión guardada salía inválida y cada llamada volvía a autenticarse.
    * @private
    */
   async _validarSesion(cookieJar) {
     try {
       console.log('[SiiPortalAuth] Validando sesión cacheada en SII...');
       const res = await this._request(
-        'https://maullin.sii.cl/cvc_cgi/dte/ad_empresa1',
-        { cookieJar: { ...cookieJar } } // copia para no contaminar
+        'https://www2.sii.cl/app/session/status',
+        {
+          cookieJar: { ...cookieJar }, // copia para no contaminar
+          headers: { 'Accept': 'application/json, text/plain, */*' },
+        }
       );
-      // Si redirige al login SII → expirada
-      const loc = res.headers['location'] || '';
-      if (loc.includes('InicioAutenticacion') || loc.includes('IngresoRutClave')) {
-        console.warn('[SiiPortalAuth] Validación: SII redirigió al login → sesión expirada');
-        return false;
-      }
-      // Si el body contiene formulario de empresa → válida
-      const valida = res.status === 200 && (res.body.includes('RUT_EMP') || res.body.includes('ad_empresa'));
+      let estado = null;
+      try { estado = JSON.parse(res.body); } catch { estado = null; }
+      const valida = res.status === 200 && !!(estado && estado.userId) &&
+        !(typeof estado.seconds === 'number' && estado.seconds <= 0);
       console.log(`[SiiPortalAuth] Validación: status=${res.status} → sesión ${valida ? 'VÁLIDA ✓' : 'INVÁLIDA ✗'}`);
       // Refrescar timestamp del caché para extender TTL mientras la sesión se usa activamente
       if (valida) await SiiPortalAuth._guardarSesion(this._certHash, cookieJar);
@@ -900,7 +906,10 @@ class SiiPortalAuth {
   }
 
   /**
-   * Host de ad_empresa según el ambiente: `maullin` (certificación) o `palena` (producción).
+   * Host de las páginas antiguas de la ficha (`maullin` o `palena`). Ya no se usa para leer la
+   * resolución (ver `obtenerDatosEmpresa`); se conserva porque hay consumidores que verifican su
+   * existencia para saber si la versión instalada lee la resolución por ambiente.
+   * @deprecated
    * @private
    */
   static _hostAdEmpresa(ambiente) {
@@ -910,8 +919,11 @@ class SiiPortalAuth {
   }
 
   /**
-   * Obtiene datos del contribuyente desde ad_empresa2.
-   * Incluye fch_resol, nro_resol, razón social, etc.
+   * Obtiene la fecha y el número de resolución desde la ficha de la empresa
+   * (`SiiFichaEmpresa.leerFicha`, API `sii-muyd` de www2.sii.cl / www2c.sii.cl).
+   *
+   * Hasta 2.x/3.0.0 se leía de `cvc_cgi/dte/ad_empresa1` + `ad_empresa2`, que el SII retiró el
+   * 2026-11-17 (404 en palena, redirección a la página de error en maullin).
    *
    * @param {string} rutEmpresa - RUT sin DV (ej: "12345678")
    * @param {string} dvEmpresa  - DV (ej: "K")
@@ -921,31 +933,82 @@ class SiiPortalAuth {
    *   palena (producción) devuelven valores distintos para el mismo RUT (medido 25/09/2026:
    *   2026-09-21 / 0 en maullin y 2014-08-22 / 80 en palena). Usar la de certificación en un
    *   envío de producción hace que el SII rechace el sobre con "Error en Carátula".
-   * @returns {Promise<Object>} { rut, razonSocial, fch_resol, nro_resol, fecha_autorizacion }
+   * @returns {Promise<Object>} { rut, razonSocial, fch_resol, nro_resol, fecha_autorizacion }.
+   *   `razonSocial` es null (la ficha no la trae; sale de `obtenerDatosContribuyente`) y
+   *   `fecha_autorizacion` viene en AAAA-MM-DD.
    */
   async obtenerDatosEmpresa(rutEmpresa, dvEmpresa, cookieJar = null, ambiente = 'certificacion') {
-    const jar = cookieJar || await this.autenticar();
-    const host = SiiPortalAuth._hostAdEmpresa(ambiente);
-
-    // ad_empresa1 → mostrar el form de ingreso de RUT (obtiene cookie de sesión del host)
-    await this._request(`https://${host}/cvc_cgi/dte/ad_empresa1`, { cookieJar: jar });
-
-    // ad_empresa2 → POST con RUT empresa → devuelve tabla con datos
-    const res = await this._request(
-      `https://${host}/cvc_cgi/dte/ad_empresa2`,
-      {
-        method: 'POST',
-        body: `RUT_EMP=${encodeURIComponent(rutEmpresa)}&DV_EMP=${encodeURIComponent(dvEmpresa)}&ACEPTAR=Ingresar`,
-        cookieJar: jar,
+    const SiiFichaEmpresa = require('./SiiFichaEmpresa');
+    let ficha;
+    try {
+      ficha = await new SiiFichaEmpresa({ auth: this, ambiente: ambiente == null ? 'certificacion' : ambiente })
+        .leerFicha(`${rutEmpresa}-${dvEmpresa}`, cookieJar ? { cookieJar } : {});
+    } catch (e) {
+      // Sin acceso a la ficha o ficha vacía: el SII no la entrega para este RUT. Mismo caso que la
+      // página antigua resolvía con "no se encontraron datos de resolución" (los consumidores lo
+      // tratan como empresa aún no postulada en el ambiente).
+      if (e.code === 'FICHA_SIN_ACCESO_EMPRESA' || e.code === 'FICHA_VACIA') {
+        throw SiiPortalAuth._errorSinResolucion(`${e.message}`, e);
       }
-    );
+      throw e;
+    }
+    return SiiPortalAuth._resolucionDesdeFicha(ficha);
+  }
 
-    return SiiPortalAuth._parsearTablaEmpresa(res.body);
+  /**
+   * Errores de la ficha que un login nuevo no arregla: reintentar solo gasta sesiones del SII.
+   * Los consumidores con su propio bucle de reintento deben consultarlo antes de re-autenticar.
+   */
+  static esErrorDefinitivoFicha(e) {
+    return !!e && [
+      'EMPRESA_NO_AUTORIZADA', 'FICHA_SIN_ACCESO_EMPRESA', 'FICHA_REQUIERE_MFA',
+      'FICHA_REQUIERE_CLAVE_TRIBUTARIA', 'FICHA_VACIA', 'FICHA_RESPUESTA_INVALIDA', 'FICHA_REDIRECCION',
+    ].includes(e.code);
+  }
+
+  /** @private */
+  static _errorSinResolucion(detalle, causa) {
+    const err = new Error(
+      'SiiPortalAuth: no se encontraron datos de resolución en la ficha de la empresa del SII. ' +
+      'El SII no reconoce a la empresa como emisor electrónico en este ambiente (falta la ' +
+      'certificación o la postulación), o el titular del certificado no tiene acceso a su ficha. ' +
+      `Detalle: ${detalle}`
+    );
+    err.code = 'EMPRESA_NO_AUTORIZADA';
+    if (causa) err.cause = causa;
+    return err;
+  }
+
+  /**
+   * Traduce la ficha (`obtenerEmpresa`) al formato que devolvía `obtenerDatosEmpresa`.
+   * @private
+   */
+  static _resolucionDesdeFicha(ficha) {
+    const fechaRaw = ficha.fechaResolucion == null ? '' : String(ficha.fechaResolucion).trim();
+    const nroRaw = ficha.resolucion == null ? '' : String(ficha.resolucion).trim();
+    if (!fechaRaw && !nroRaw) {
+      throw SiiPortalAuth._errorSinResolucion('la ficha trae fechaResolucion y resolucion vacías');
+    }
+    const fecha = fechaRaw ? fechaRaw.slice(0, 10) : null;
+    if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      throw new Error(`SiiPortalAuth: fechaResolucion con formato inesperado en la ficha del SII: "${fechaRaw}" (se espera AAAA-MM-DD)`);
+    }
+    const nro = nroRaw ? parseInt(nroRaw, 10) : null;
+    if (nroRaw && (Number.isNaN(nro) || String(nro) !== nroRaw.replace(/^0+(?=\d)/, ''))) {
+      throw new Error(`SiiPortalAuth: resolucion con formato inesperado en la ficha del SII: "${nroRaw}"`);
+    }
+    return {
+      rut:                ficha.rut != null && ficha.dv != null ? `${ficha.rut}-${String(ficha.dv).toUpperCase()}` : null,
+      razonSocial:        null,
+      fch_resol:          fecha,
+      nro_resol:          nro,
+      fecha_autorizacion: ficha.fechaAutorizacion || null,
+    };
   }
 
   /**
    * Método de conveniencia: autentica y obtiene TODOS los datos del emisor en un solo paso:
-   * - fch_resol / nro_resol   (desde ad_empresa2)
+   * - fch_resol / nro_resol   (desde la ficha de la empresa, SiiFichaEmpresa)
    * - rut, razonSocial, giro, dirección, comuna, acteco  (desde pe_construccion_dte)
    *
    * @param {string} rutEmpresa - RUT sin DV (ej: "12345678")
@@ -1103,15 +1166,9 @@ class SiiPortalAuth {
   // ─── Parser interno ──────────────────────────────────────────────────────────
 
   /**
-   * Parsea la tabla HTML de ad_empresa2.
-   * El HTML tiene filas <tr><td>Label</td><td>&nbsp;Valor</td></tr>
-   * @private
-   */
-  /**
    * "el Contribuyente no está autorizado para operar en esta modalidad" — la empresa nunca
-   * quedó postulada (y/o enrolada) como emisor electrónico ante el SII, así que ad_empresa2
-   * ni siquiera devuelve la tabla de datos que `_parsearTablaEmpresa` espera: devuelve esta
-   * página de rechazo. Mismo patrón y mismo código de error que `CafSolicitor.esEmpresaNoAutorizada`
+   * quedó postulada (y/o enrolada) como emisor electrónico ante el SII. Lo devolvía la página
+   * antigua de la ficha (ad_empresa2, retirada en 2026-11) y lo usan otras páginas del portal. Mismo patrón y mismo código de error que `CafSolicitor.esEmpresaNoAutorizada`
    * (`EMPRESA_NO_AUTORIZADA`) — ahí ya existía para otro flujo, acá faltaba. Sin esto caía en
    * el genérico "no se encontraron datos de resolución", que no dice qué falta. Caso real
    * verificado el 2026-09-10 (RUT anonimizado en los tests).
@@ -1123,69 +1180,6 @@ class SiiPortalAuth {
     // esta autorizado" (ad_empresa2, caso real 2026-09-10) -- distinto genero tambien
     // (autorizada/autorizado), por eso el [oa] al final en vez de repetir todo el patron.
     return /(empresa|contribuyente)\s+no\s+est.{0,8}\s*autorizad[oa]\s+para\s+operar/i.test(texto);
-  }
-
-  static _parsearTablaEmpresa(html) {
-    if (SiiPortalAuth.esEmpresaNoAutorizada(html)) {
-      const err = new Error(
-        'SiiPortalAuth: la empresa no está autorizada para operar en esta modalidad. ' +
-        'No es un problema de datos ni de sesión: el SII no reconoce a la empresa como ' +
-        'emisor electrónico en este ambiente. Las dos causas habituales son que todavía ' +
-        'no complete la certificación (en producción no queda autorizada hasta entonces) ' +
-        'o que nunca se haya corrido la Postulación/Enrolamiento.'
-      );
-      err.code = 'EMPRESA_NO_AUTORIZADA';
-      throw err;
-    }
-
-    const datos = {};
-    const decode = s => s
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/gi, '')
-      .replace(/&oacute;/g, 'ó')
-      .replace(/&aacute;/g, 'á')
-      .replace(/&eacute;/g, 'é')
-      .replace(/&iacute;/g, 'í')
-      .replace(/&uacute;/g, 'ú')
-      .replace(/&ntilde;/g, 'ñ')
-      .replace(/&amp;/g, '&')
-      .trim();
-
-    // Dividir por apertura <TR> — HTML 4.01 no exige tags </TR> de cierre
-    for (const seg of html.split(/<tr[^>]*>/i)) {
-      const celdas = [...seg.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => decode(m[1]));
-      if (celdas.length >= 2 && celdas[0]) datos[celdas[0]] = celdas[1];
-    }
-
-    // Buscar por regex para ser resiliente ante variaciones de encoding / tildes
-    const fechaKey  = Object.keys(datos).find(k => /fecha.*resol/i.test(k)) || null;
-    const nroKey    = Object.keys(datos).find(k => /^resoluci/i.test(k) && !/fecha/i.test(k)) || null;
-    const fechaResol = fechaKey ? datos[fechaKey] : null;
-    const nroResol   = nroKey   ? datos[nroKey]   : null;
-
-    if (fechaResol === null && nroResol === null) {
-      // Loguear los campos encontrados para diagnóstico
-      const camposEncontrados = Object.keys(datos);
-      console.warn('[SiiPortalAuth] ad_empresa2 campos encontrados:', camposEncontrados.length ? camposEncontrados.join(', ') : '(ninguno)');
-      if (!camposEncontrados.length) {
-        // Puede ser una página de login o error — loguear inicio del HTML
-        console.warn('[SiiPortalAuth] HTML ad_empresa2 (primeros 500 chars):', html.slice(0, 500).replace(/\s+/g, ' '));
-      }
-      throw new Error('SiiPortalAuth: no se encontraron datos de resolución en la respuesta del SII');
-    }
-
-    // Convertir fecha DD-MM-YYYY → YYYY-MM-DD
-    const fchResolIso = fechaResol
-      ? fechaResol.replace(/^(\d{2})-(\d{2})-(\d{4})$/, '$3-$2-$1')
-      : null;
-
-    return {
-      rut:               datos['Rut']               || null,
-      razonSocial:       datos['Razón Social']       || null,
-      fch_resol:         fchResolIso,
-      nro_resol:         nroResol !== null ? parseInt(nroResol, 10) : null,
-      fecha_autorizacion: datos['Fecha Autorización'] || null,
-    };
   }
 
   // ─── Consemitidos (www4.sii.cl/consemitidosinternetui, o www4c.sii.cl en certificación) ─────
@@ -1771,10 +1765,8 @@ class SiiPortalAuth {
     }
 
     // Retry con sesión fresca: a veces la sesión cacheada pasa la validación básica
-    // pero ad_empresa2 devuelve otra página (ej. "Actualización de Datos del
-    // Contribuyente"). Secuencial a propósito: compartir el cookieJar en paralelo
-    // genera una race condition — ce_consulta_muestra_e puede sobreescribir la cookie
-    // Tivoli (TS0xxxxxxx) que ad_empresa1 dejó, y ad_empresa2 responde vacío.
+    // pero la ficha responde 401. Secuencial a propósito: compartir el cookieJar en
+    // paralelo entre páginas del portal genera race conditions con las cookies TS0xxxxxxx.
     let datosResol, datosContrib;
     for (let intento = 1; intento <= 2; intento++) {
       try {
@@ -1785,7 +1777,7 @@ class SiiPortalAuth {
         });
         break;
       } catch (e) {
-        if (intento === 1) {
+        if (intento === 1 && !SiiPortalAuth.esErrorDefinitivoFicha(e)) {
           aviso(`[SiiPortalAuth] Sesión cacheada inválida (${e.message}). Re-autenticando...`);
           await auth.limpiarSesion();
           cookieJar = await auth.autenticar();

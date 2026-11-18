@@ -8,6 +8,34 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+### Corregido
+
+- **El SII retiró las páginas de la ficha de la empresa (`cvc_cgi/dte/ad_empresa1..4`).** Desde el
+  2026-11-17 responden 404 en producción (palena) y redirigen a la página de error en certificación
+  (maullin). Con eso `SiiPortalAuth.obtenerDatosEmpresa` (y `obtenerEmisor`, `fetchDatosEmpresa`)
+  dejaron de leer la fecha y el número de resolución. Ahora se leen de la API JSON que las reemplaza
+  (`www2.sii.cl/app/sii-muyd`, `www2c.sii.cl` en certificación) con el mismo login por certificado.
+  La firma no cambia; `razonSocial` vuelve null (sale de `obtenerDatosContribuyente`) y
+  `fecha_autorizacion` viene en AAAA-MM-DD. Una ficha sin resolución lanza `EMPRESA_NO_AUTORIZADA`.
+- **La sesión guardada siempre salía inválida.** `_validarSesion` consultaba `ad_empresa1`; ahora usa
+  `www2.sii.cl/app/session/status` (200 con `userId` si la sesión está viva, 401 si no).
+- **Respuestas JSON sin charset de hosts `*.sii.cl` se leían como latin1.** Ahora se leen como UTF-8
+  (RFC 8259), para no corromper tildes al leer y volver a grabar la ficha.
+
+### Agregado
+
+- `SiiFichaEmpresa`: `leerFicha(rut)` y `actualizarFicha(rut, cambios)` sobre la API nueva.
+  `actualizarFicha` acepta solo `mailSupusuario`, `mailContactoSii`, `mailContactoDte`, `nombreSw` y
+  `url`, valida los correos con la misma regla del SII (máximo 50 caracteres), graba la ficha
+  completa con el titular de la sesión como responsable y vuelve a leer para confirmar
+  (`{ antes, despues }`). Errores con el código HTTP y el cuerpo del SII completos; 403 y 428
+  (clave tributaria y MFA) no se reintentan.
+
+### Eliminado
+
+- `SiiPortalAuth._parsearTablaEmpresa` (privado), parser de la página retirada `ad_empresa2`.
+  `_hostAdEmpresa` se conserva, marcado como obsoleto.
+
 ## [3.0.0] - 2026-11-16
 
 ### Corregido

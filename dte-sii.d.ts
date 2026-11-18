@@ -682,6 +682,60 @@ export interface RespuestaReclamoDte {
   descResp: string;
 }
 
+/** Ficha de la empresa tal como la devuelve el SII (`obtenerEmpresa`). */
+export interface FichaEmpresaSii {
+  rut: number;
+  dv: string;
+  tipoFacturacion: string;
+  fechaResolucion: string | null;
+  resolucion: string | null;
+  rutResponsable: string;
+  dvResponsable: string;
+  nombreSw: string;
+  entidadCertificadora: string;
+  fechaAutorizacion: string | null;
+  mailContactoDte: string | null;
+  mailContactoSii: string | null;
+  mailSupusuario: string | null;
+  fechaDesautorizacion: string | null;
+  url: string | null;
+  codigo: number | null;
+  mailRepresentante: string | null;
+  telefonoContacto: string | null;
+  [campo: string]: unknown;
+}
+
+/** Campos que `SiiFichaEmpresa.actualizarFicha` acepta cambiar. */
+export interface CambiosFichaEmpresa {
+  mailSupusuario?: string;
+  mailContactoSii?: string;
+  mailContactoDte?: string;
+  nombreSw?: string;
+  url?: string | null;
+}
+
+/**
+ * Ficha de la empresa en el SII sobre la API `sii-muyd` (www2.sii.cl / www2c.sii.cl), que
+ * reemplaza a las páginas retiradas `cvc_cgi/dte/ad_empresa1..4`. Usa el login por certificado
+ * de `SiiPortalAuth`. Errores con `code`: FICHA_SESION_INVALIDA (401),
+ * FICHA_REQUIERE_CLAVE_TRIBUTARIA (403), FICHA_REQUIERE_MFA (428), FICHA_HTTP_ERROR,
+ * FICHA_RESPUESTA_INVALIDA, FICHA_VACIA, FICHA_NO_CONFIRMADA; además `status`, `body` y `paso`.
+ */
+export class SiiFichaEmpresa {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(opts: { auth: any; ambiente?: 'certificacion' | 'produccion' });
+  static host(ambiente: 'certificacion' | 'produccion'): string;
+  static validarCorreo(valor: unknown): boolean;
+  static readonly CAMPOS_EDITABLES: string[];
+  static readonly REGEX_CORREO: RegExp;
+  leerFicha(rutEmpresa: string, opts?: { cookieJar?: Record<string, string> }): Promise<FichaEmpresaSii>;
+  actualizarFicha(
+    rutEmpresa: string,
+    cambios: CambiosFichaEmpresa,
+    opts?: { cookieJar?: Record<string, string> },
+  ): Promise<{ antes: FichaEmpresaSii; despues: FichaEmpresaSii }>;
+}
+
 /**
  * Cliente del web service de Registro de Aceptación/Reclamo de DTE (WSRECLAMO).
  * Se exporta desde index.js.
