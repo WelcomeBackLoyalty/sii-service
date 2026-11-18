@@ -8,6 +8,8 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+## [3.1.0] - 2026-11-18
+
 ### Corregido
 
 - **El SII retiró las páginas de la ficha de la empresa (`cvc_cgi/dte/ad_empresa1..4`).** Desde el
