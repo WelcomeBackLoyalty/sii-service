@@ -22,6 +22,10 @@ const {
   TASA_IVA_DEFAULT,
   TIPOS_BOLETA,
   TASA_IVA,
+  esLineaNoFacturable,
+  calcularMontoNF,
+  assertTipoAdmiteNoFacturable,
+  agregarTotalesNoFacturable,
 } = require('./utils');
 const { serializeNode, escapeAttr, escapeText, buildSignedInfo, buildSignature } = require('./utils/c14n');
 
@@ -116,7 +120,13 @@ class DTE {
     // del total bruto. Probado en maullin sin reparos, incluso cuando IVA = bruto - neto no
     // coincide por $1 con neto x tasa.
     const { detalle, mntNeto, mntExento } = this._procesarItems(d.items, esExenta);
-    const totales = this._calcularTotales(mntNeto, mntExento, esExenta, esBoleta, precioConIva);
+    // Líneas no facturables (IndExe 2/6, p. ej. la propina): fuera del neto, del exento y de
+    // MntTotal; van en MontoNF, MontoPeriodo y VlrPagar. Lanza en tipos que no las admiten.
+    const totales = agregarTotalesNoFacturable(
+      d.tipo,
+      detalle,
+      this._calcularTotales(mntNeto, mntExento, esExenta, esBoleta, precioConIva),
+    );
     // "Sólo para documentos sin impuestos adicionales": el formato simplificado no los declara.
     const declaraMntBruto = precioConIva && !esBoleta && mntNeto > 0;
 
@@ -167,11 +177,15 @@ class DTE {
 
     const detalle = items.map((item, idx) => {
       const qty = item.QtyItem || 1;
-      const esItemExento = esExenta || item.IndExe === 1;
+      // IndExe 2/6 (no facturable) se declara tal cual y no suma al neto ni al exento.
+      const noFacturable = esLineaNoFacturable(item);
+      const esItemExento = !noFacturable && (esExenta || item.IndExe === 1);
       const prc = item.PrcItem;
       const montoItem = Math.round(qty * prc);
       
-      if (esItemExento) {
+      if (noFacturable) {
+        // MontoNF lo calcula agregarTotalesNoFacturable desde el Detalle.
+      } else if (esItemExento) {
         mntExento += montoItem;
       } else {
         mntNeto += montoItem;
@@ -179,7 +193,7 @@ class DTE {
       
       const det = {
         NroLinDet: idx + 1,
-        ...(esItemExento ? { IndExe: 1 } : {}),
+        ...(noFacturable ? { IndExe: Number(item.IndExe) } : esItemExento ? { IndExe: 1 } : {}),
         NmbItem: sanitizeNmbItem(item.NmbItem),
         QtyItem: qty,
         ...(item.UnmdItem ? { UnmdItem: item.UnmdItem } : {}),
@@ -226,6 +240,27 @@ class DTE {
     return totales;
   }
   
+  /**
+   * Con líneas no facturables (IndExe 2/6) el SII rechaza el documento si MontoNF falta o no
+   * cuadra con ellas: (HED-3-270) "Monto No Facturable Incorrecto" (medido en maullin). Se
+   * valida aquí para que el modo estructurado, que escribe Totales tal como llega, falle antes
+   * de firmar y enviar.
+   */
+  _validarNoFacturable(tipoDte, detalle, totales) {
+    if (!(detalle || []).some(esLineaNoFacturable)) return;
+    assertTipoAdmiteNoFacturable(tipoDte);
+    const esperado = calcularMontoNF(detalle);
+    const declarado = Number(totales?.MontoNF);
+    if (totales?.MontoNF === undefined || declarado !== esperado) {
+      const err = new Error(
+        `MontoNF ${totales?.MontoNF ?? '(ausente)'} no cuadra con las líneas no facturables (${esperado}). ` +
+        'Usar agregarTotalesNoFacturable(tipo, detalle, totales).',
+      );
+      err.code = 'MONTO_NF_NO_CUADRA';
+      throw err;
+    }
+  }
+
   // ============================================
   // GENERACIÓN XML
   // ============================================
@@ -237,6 +272,7 @@ class DTE {
     const esBoleta = TIPOS_BOLETA.includes(tipoDte);
     
     this.id = `DTE_T${tipoDte}F${enc.IdDoc.Folio}`;
+    this._validarNoFacturable(tipoDte, det, enc.Totales);
     
     const idDoc = this._buildIdDoc(enc.IdDoc, esBoleta);
     const emisor = this._buildEmisor(enc.Emisor, esBoleta);

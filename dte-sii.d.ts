@@ -66,6 +66,7 @@ export interface Receptor {
 
 export interface DetalleItem {
   NroLinDet: number;
+  /** 1 = exento; 2 = no facturable (p. ej. propina); 6 = no facturable negativo. */
   IndExe?: number;
   NmbItem: string;
   QtyItem?: number;
@@ -92,7 +93,14 @@ export interface Totales {
   TasaIVA?: number;
   IVA?: number;
   ImptoReten?: ImpuestoRetencion[];
+  /** No incluye el monto no facturable. */
   MntTotal: number;
+  /** Σ IndExe=2 - Σ IndExe=6. Obligatorio si hay líneas no facturables (HED-3-270). */
+  MontoNF?: number;
+  /** MntTotal + MontoNF. */
+  MontoPeriodo?: number;
+  /** MntTotal + MontoNF (lo cobrado). */
+  VlrPagar?: number;
 }
 
 export interface ImpuestoRetencion {
@@ -1208,6 +1216,17 @@ export function buildDetalleGuia(items: ItemSimple[], options?: { sanitize?: (v:
 export function buildDetalleCompra(items: ItemSimple[], options?: BuildDetalleOptions): DetalleItem[];
 export function buildDescuentoGlobal(descuentoPct: number, glosa?: string): DscRcgGlobal[] | null;
 
+// Montos no facturables (IndExe 2/6). Solo 33, 34, 56 y 61.
+export const IND_EXE_NO_FACTURABLE: 2;
+export const IND_EXE_NO_FACTURABLE_NEGATIVO: 6;
+export const TIPOS_CON_NO_FACTURABLE: readonly number[];
+export function esLineaNoFacturable(det: { IndExe?: number | string } | null | undefined): boolean;
+export function calcularMontoNF(detalle: Array<{ IndExe?: number | string; MontoItem?: number }>): number;
+/** Lanza Error con code 'NO_FACTURABLE_NO_PERMITIDO' si el tipo no admite líneas no facturables. */
+export function assertTipoAdmiteNoFacturable(tipoDte: number): void;
+/** Agrega MontoNF, MontoPeriodo y VlrPagar (orden XSD) si hay líneas no facturables. */
+export function agregarTotalesNoFacturable<T extends Record<string, unknown>>(tipoDte: number, detalle: Array<{ IndExe?: number | string; MontoItem?: number }>, totales: T): T & { MontoNF?: number; MontoPeriodo?: number; VlrPagar?: number };
+
 // Referencia
 export function buildSetReferencia(casoId: string, fecha: string, nroLinRef?: number): Referencia;
 export function buildDocReferencia(params: DocReferenciaParams): Referencia;
@@ -1348,6 +1367,13 @@ export const utils: {
   buildDetalleGuia: typeof buildDetalleGuia;
   buildDetalleCompra: typeof buildDetalleCompra;
   buildDescuentoGlobal: typeof buildDescuentoGlobal;
+  IND_EXE_NO_FACTURABLE: typeof IND_EXE_NO_FACTURABLE;
+  IND_EXE_NO_FACTURABLE_NEGATIVO: typeof IND_EXE_NO_FACTURABLE_NEGATIVO;
+  TIPOS_CON_NO_FACTURABLE: typeof TIPOS_CON_NO_FACTURABLE;
+  esLineaNoFacturable: typeof esLineaNoFacturable;
+  calcularMontoNF: typeof calcularMontoNF;
+  assertTipoAdmiteNoFacturable: typeof assertTipoAdmiteNoFacturable;
+  agregarTotalesNoFacturable: typeof agregarTotalesNoFacturable;
 
   buildSetReferencia: typeof buildSetReferencia;
   buildDocReferencia: typeof buildDocReferencia;
