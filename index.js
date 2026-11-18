@@ -98,6 +98,14 @@ const {
   buildDetalleGuia,
   buildDetalleCompra,
   buildDescuentoGlobal,
+  // Montos no facturables (IndExe 2/6)
+  IND_EXE_NO_FACTURABLE,
+  IND_EXE_NO_FACTURABLE_NEGATIVO,
+  TIPOS_CON_NO_FACTURABLE,
+  esLineaNoFacturable,
+  calcularMontoNF,
+  assertTipoAdmiteNoFacturable,
+  agregarTotalesNoFacturable,
 
   // Referencia
   buildSetReferencia,
@@ -336,6 +344,14 @@ module.exports = {
   calcularTotalesDesdeDetalle,
   buildDetalle,
   buildDetalleGuia,  buildDetalleCompra,  buildDescuentoGlobal,
+  // Montos no facturables (IndExe 2/6)
+  IND_EXE_NO_FACTURABLE,
+  IND_EXE_NO_FACTURABLE_NEGATIVO,
+  TIPOS_CON_NO_FACTURABLE,
+  esLineaNoFacturable,
+  calcularMontoNF,
+  assertTipoAdmiteNoFacturable,
+  agregarTotalesNoFacturable,
 
   // ─────────────────────────────────────────
   // Referencia

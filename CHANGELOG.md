@@ -8,6 +8,23 @@ Versionado [SemVer](https://semver.org/lang/es/).
 <!-- Los PRs agregan aca, sin elegir numero de version. Al publicar, esta seccion
      pasa a ser una version numerada con su fecha. Ver CONTRIBUTING.md. -->
 
+### Agregado
+
+- **Líneas no facturables (`IndExe=2` y `IndExe=6`), p. ej. la propina en una factura.** El modo
+  simplificado de `DTE` las acepta: no suman al neto, al exento ni a `MntTotal`, y los Totales llevan
+  `MontoNF`, `MontoPeriodo` y `VlrPagar` en el orden del XSD. Solo en 33, 34, 56 y 61; en boleta y
+  exportación lanza `NO_FACTURABLE_NO_PERMITIDO`. Medido en un ambiente de certificación: factura,
+  factura exenta y nota de crédito aceptadas sin reparo; sin `MontoNF` el SII rechaza (HED-3-270); en
+  boleta deja reparo (HED-2-260).
+- Helpers `agregarTotalesNoFacturable`, `calcularMontoNF`, `esLineaNoFacturable` y
+  `assertTipoAdmiteNoFacturable`, para el modo estructurado.
+- `generarXML` lanza `MONTO_NF_NO_CUADRA` si hay líneas no facturables y `MontoNF` falta o no cuadra.
+- La muestra impresa muestra "Monto No Facturable" y "Total a Pagar".
+
+### Corregido
+
+- `calcularTotalesDesdeDetalle` contaba una línea `IndExe=2` como afecta.
+
 ## [3.1.0] - 2026-11-18
 
 ### Corregido

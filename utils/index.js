@@ -116,6 +116,9 @@ const {
   buildDescuentoGlobal,
 } = require('./calculo');
 
+// Montos no facturables (IndExe 2/6)
+const noFacturable = require('./no-facturable');
+
 // Referencia
 const {
   buildSetReferencia,
@@ -236,6 +239,7 @@ module.exports = {
   calcularTotalesDesdeItems,
   calcularTotalesDesdeDetalle,
   buildDetalle,
+  ...noFacturable,
   buildDetalleGuia,  buildDetalleCompra,  buildDescuentoGlobal,
 
   // ─────────────────────────────────────────

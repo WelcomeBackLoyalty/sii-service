@@ -408,6 +408,8 @@ class MuestrasImpresas {
       totalesHtml = `
         ${totales?.MntExe ? `<tr><td>Monto Exento</td><td class="num">$${formatMonto(totales.MntExe)}</td></tr>` : ''}
         ${totales?.MntTotal ? `<tr><td><strong>Monto Total</strong></td><td class="num"><strong>$${formatMonto(totales.MntTotal)}</strong></td></tr>` : ''}
+        ${totales?.MontoNF ? `<tr><td>Monto No Facturable</td><td class="num">$${formatMonto(totales.MontoNF)}</td></tr>` : ''}
+        ${totales?.MontoNF && totales?.VlrPagar ? `<tr><td><strong>Total a Pagar</strong></td><td class="num"><strong>$${formatMonto(totales.VlrPagar)}</strong></td></tr>` : ''}
       `;
     } else {
       totalesHtml = `
@@ -416,6 +418,8 @@ class MuestrasImpresas {
         ${totales?.MntExe ? `<tr><td>Monto Exento</td><td class="num">$${formatMonto(totales.MntExe)}</td></tr>` : ''}
         ${totales?.IVA ? `<tr><td>IVA (${totales?.TasaIVA || 19}%)</td><td class="num">$${formatMonto(totales.IVA)}</td></tr>` : ''}
         ${totales?.MntTotal ? `<tr><td><strong>Monto Total</strong></td><td class="num"><strong>$${formatMonto(totales.MntTotal)}</strong></td></tr>` : ''}
+        ${totales?.MontoNF ? `<tr><td>Monto No Facturable</td><td class="num">$${formatMonto(totales.MontoNF)}</td></tr>` : ''}
+        ${totales?.MontoNF && totales?.VlrPagar ? `<tr><td><strong>Total a Pagar</strong></td><td class="num"><strong>$${formatMonto(totales.VlrPagar)}</strong></td></tr>` : ''}
       `;
     }
 
@@ -797,6 +801,9 @@ class MuestrasImpresas {
       if (totales.IVA)      rows++;
       if (totales.MntTotal) rows++;
     }
+    // Monto no facturable (IndExe 2/6) y total a pagar, después de Monto Total.
+    if (totales.MontoNF) rows++;
+    if (totales.MontoNF && totales.VlrPagar) rows++;
     return rows * (PDF_LAYOUT.table.rowH + 2) + 8;
   }
 
@@ -1125,6 +1132,9 @@ class MuestrasImpresas {
       if (totales.IVA)      rows.push([`IVA (${totales.TasaIVA || 19}%)`,   `$${formatMonto(totales.IVA)}`,      false]);
       if (totales.MntTotal) rows.push(['Monto Total',                        `$${formatMonto(totales.MntTotal)}`, true]);
     }
+    // Monto no facturable (IndExe 2/6, p. ej. propina): fuera de MntTotal; el total cobrado es VlrPagar.
+    if (totales.MontoNF) rows.push(['Monto No Facturable', `$${formatMonto(totales.MontoNF)}`, false]);
+    if (totales.MontoNF && totales.VlrPagar) rows.push(['Total a Pagar', `$${formatMonto(totales.VlrPagar)}`, true]);
 
     let ry      = y + 2;
     const labelW = Math.round(boxW * 0.55);

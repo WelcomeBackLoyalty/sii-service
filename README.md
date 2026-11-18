@@ -156,6 +156,27 @@ dte.generarXML().timbrar(caf).firmar(cert)
 console.log(dte.getXML())
 ```
 
+#### Montos no facturables (propina)
+
+Una línea con `IndExe: 2` es un monto no facturable (por ejemplo, la propina en una factura).
+`IndExe: 6` es un no facturable negativo. No suman al neto, al exento, al IVA ni a `MntTotal`.
+Con esas líneas, los Totales llevan `MontoNF` (suma de `IndExe=2` menos suma de `IndExe=6`),
+`MontoPeriodo` y `VlrPagar` (`MntTotal + MontoNF`), en el orden del XSD.
+
+```javascript
+Detalle: [
+  { NmbItem: 'Consumo', QtyItem: 1, PrcItem: 10000 },
+  { NmbItem: 'Propina', QtyItem: 1, PrcItem: 1190, IndExe: 2 },
+]
+// Totales: MntTotal 11900, MontoNF 1190, MontoPeriodo 13090, VlrPagar 13090
+```
+
+- Solo en 33, 34, 56 y 61. En boleta (39, 41) y exportación lanza `NO_FACTURABLE_NO_PERMITIDO`.
+- `generarXML` lanza `MONTO_NF_NO_CUADRA` si `MontoNF` falta o no cuadra con las líneas.
+- Modo estructurado: `agregarTotalesNoFacturable`, `calcularMontoNF`, `esLineaNoFacturable`
+  y `assertTipoAdmiteNoFacturable`.
+- La muestra impresa muestra "Monto No Facturable" y "Total a Pagar". El TED usa `MntTotal`.
+
 ### 3. Crear sobre y enviar
 
 ```javascript

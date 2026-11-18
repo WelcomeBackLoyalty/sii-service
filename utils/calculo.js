@@ -15,6 +15,8 @@ const { TASA_IVA } = require('./constants');
 // Alias para compatibilidad con código existente
 const TASA_IVA_DEFAULT = TASA_IVA;
 
+const { esLineaNoFacturable } = require('./no-facturable');
+
 // ============================================
 // FORMATEO
 // ============================================
@@ -171,6 +173,8 @@ function calcularTotalesDesdeDetalle(detalle, options = {}) {
 
   (detalle || []).forEach((det) => {
     const monto = Number(det.MontoItem || 0);
+    // IndExe 2/6 (no facturable): no es neto ni exento. Ver utils/no-facturable.js.
+    if (esLineaNoFacturable(det)) return;
     if (det.IndExe === 1) {
       mntExento += monto;
     } else {
